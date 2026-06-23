@@ -3,6 +3,7 @@
 Lê mensagens em linguagem natural (ex.: "Fulano pagou 50"), interpreta a
 intenção e lê/grava os dados em uma planilha do Google Sheets.
 """
+import asyncio
 import logging
 import time
 import uuid
@@ -392,6 +393,13 @@ async def tratar_erro(update: object, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 def main() -> None:
     config.validar_configuracao()
+
+    # No Python 3.14, a thread principal não tem mais um event loop criado
+    # automaticamente; garantimos um aqui antes do run_polling() criar o dele.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
 
