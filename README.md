@@ -103,7 +103,10 @@ Copie o **ID da planilha**: é o trecho da URL entre `/d/` e `/edit`:
    **Chaves > Adicionar chave > Criar nova chave**, escolha **JSON** e baixe
    o arquivo.
 6. Salve esse arquivo na raiz do projeto como `credentials.json` (ou outro
-   nome/caminho — só ajustar `GOOGLE_CREDENTIALS_FILE` no `.env`).
+   nome/caminho — só ajustar `GOOGLE_CREDENTIALS_FILE` no `.env`). Isso é só
+   para rodar **localmente**; em hospedagens como o Railway, onde não dá pra
+   subir esse arquivo, use a variável `GOOGLE_CREDENTIALS_JSON` (veja a seção
+   7).
 
    ⚠️ **Nunca** suba esse arquivo para um repositório público — ele já está
    no `.gitignore`.
@@ -135,6 +138,11 @@ VALOR_CONFIRMACAO=500
 
 - Use `GOOGLE_SHEET_ID` (recomendado) **ou** `GOOGLE_SHEET_NAME` — não
   precisa preencher os dois.
+- As credenciais da service account podem vir de duas formas (veja a seção
+  3.3): `GOOGLE_CREDENTIALS_FILE` (arquivo, uso local) ou
+  `GOOGLE_CREDENTIALS_JSON` (conteúdo do JSON direto na variável, usado no
+  Railway). Se `GOOGLE_CREDENTIALS_JSON` estiver definida, ela tem
+  prioridade sobre `GOOGLE_CREDENTIALS_FILE`.
 - `SHEET_ABA_PAGAMENTOS` é o nome exato da aba que já existe na sua planilha
   com a estrutura de parcelas.
 - `LINHA_INICIAL` é a primeira linha com dados de participante (ajuste se o
@@ -192,12 +200,13 @@ processo `python main.py` rodando continuamente.
    CLI a partir desta pasta).
 2. Em **Variables**, cadastre todas as chaves do `.env` (`TELEGRAM_BOT_TOKEN`,
    `AUTHORIZED_USER_IDS`, `GOOGLE_SHEET_ID`, `VALOR_CONFIRMACAO`, etc.).
-3. Para as credenciais do Google, **não** suba o `credentials.json` direto:
-   crie uma variável `GOOGLE_CREDENTIALS_JSON` com o conteúdo do arquivo e
-   adicione, no início do `sheets_service.py` (ou num pequeno script de
-   inicialização), a gravação desse conteúdo em `credentials.json` antes do
-   bot subir — ou ajuste `SheetsService` para ler as credenciais direto da
-   variável de ambiente com `Credentials.from_service_account_info`.
+3. Para as credenciais do Google, **não** suba o `credentials.json` direto
+   (ele está no `.gitignore`): crie uma variável `GOOGLE_CREDENTIALS_JSON` e
+   cole nela o conteúdo **completo** do arquivo JSON da service account
+   (como uma string só). O `sheets_service.py` detecta essa variável
+   automaticamente e carrega a credencial a partir dela — não defina
+   `GOOGLE_CREDENTIALS_FILE` nesse caso (e se definir, ela é ignorada, já que
+   `GOOGLE_CREDENTIALS_JSON` tem prioridade).
 4. Defina o **Start Command** como `python main.py`.
 
 ### Render

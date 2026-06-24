@@ -13,6 +13,7 @@ com uma estrutura própria de parcelas:
 A aba "Config" (chave/valor, com a linha "meta") é criada automaticamente
 se ainda não existir.
 """
+import json
 from threading import Lock
 
 import gspread
@@ -52,9 +53,7 @@ class SheetsService:
         # chegarem em paralelo
         self._lock = Lock()
         try:
-            credenciais = Credentials.from_service_account_file(
-                config.GOOGLE_CREDENTIALS_FILE, scopes=SCOPES
-            )
+            credenciais = self._carregar_credenciais()
             cliente = gspread.authorize(credenciais)
             if config.GOOGLE_SHEET_ID:
                 planilha = cliente.open_by_key(config.GOOGLE_SHEET_ID)
@@ -72,6 +71,22 @@ class SheetsService:
             ) from exc
 
         self._aba_config = self._obter_ou_criar_aba_config(planilha)
+
+    @staticmethod
+    def _carregar_credenciais() -> Credentials:
+        """Carrega a credencial da service account.
+
+        Prioridade: variável de ambiente GOOGLE_CREDENTIALS_JSON (conteúdo completo do
+        JSON, usado no Railway, onde não há arquivo). Se não definida, cai no arquivo
+        apontado por GOOGLE_CREDENTIALS_FILE (uso local).
+        """
+        if config.GOOGLE_CREDENTIALS_JSON:
+            try:
+                info = json.loads(config.GOOGLE_CREDENTIALS_JSON)
+            except ValueError as exc:
+                raise PlanilhaError(f"GOOGLE_CREDENTIALS_JSON não é um JSON válido: {exc}") from exc
+            return Credentials.from_service_account_info(info, scopes=SCOPES)
+        return Credentials.from_service_account_file(config.GOOGLE_CREDENTIALS_FILE, scopes=SCOPES)
 
     def _obter_ou_criar_aba_config(self, planilha: gspread.Spreadsheet):
         try:
