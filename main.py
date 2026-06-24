@@ -41,6 +41,8 @@ MENSAGEM_AJUDA = (
     "• Fulano pagou 50\n"
     "• Fulano pagou 50 reais\n"
     "• Fulano pagou R$ 50,00\n\n"
+    "*Remover pagamento — corrigir engano* (só organizadores)\n"
+    "• Fulano não pagou\n\n"
     "*Editar nome* (só organizadores)\n"
     "• Trocar nome Fulano para Fulano Silva\n\n"
     "*Cadastrar / remover participante* (só organizadores)\n"
@@ -128,6 +130,8 @@ async def tratar_confirmacao(update: Update, context: ContextTypes.DEFAULT_TYPE)
         elif tipo == "remover_participante":
             planilha.remover_participante(dados["nome"])
             texto = f"🗑️ {dados['nome']} foi removido da planilha."
+        elif tipo == "remover_pagamento":
+            texto = _remover_e_formatar(dados["nome"])
         else:
             texto = "Não sei mais o que fazer com essa confirmação."
     except PlanilhaError as exc:
@@ -145,6 +149,19 @@ def _registrar_e_formatar(nome: str, valor: float) -> str:
     return (
         f"✅ {nome} pagou {formatar_moeda(valor)} (parcela {numero_parcela}/{NUM_PARCELAS}). "
         f"Total dele: {formatar_moeda(novo_total)}. "
+        f"Caixa: {formatar_moeda(caixa)} | Faltam {formatar_moeda(faltam)} pra meta."
+    )
+
+
+def _remover_e_formatar(nome: str) -> str:
+    """Remove a parcela mais recente do participante e monta a mensagem de sucesso."""
+    numero_parcela, valor, novo_total = planilha.remover_ultima_parcela(nome)
+    caixa = planilha.calcular_caixa()
+    meta = planilha.obter_meta()
+    faltam = max(meta - caixa, 0)
+    return (
+        f"🗑️ Removido: parcela {numero_parcela} de {nome} ({formatar_moeda(valor)}). "
+        f"Total dele agora: {formatar_moeda(novo_total)}. "
         f"Caixa: {formatar_moeda(caixa)} | Faltam {formatar_moeda(faltam)} pra meta."
     )
 
@@ -323,6 +340,23 @@ async def _remover_participante(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
+async def _remover_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE, dados: dict) -> None:
+    nome = dados["nome"]
+    # localiza a parcela mais recente só pra montar a mensagem de confirmação;
+    # a remoção de fato só acontece se o organizador clicar em ✅.
+    numero_parcela, valor = planilha.localizar_ultima_parcela(nome)
+    participante = planilha.buscar_participante(nome)
+    token = _solicitar_confirmacao(
+        context, update.effective_user.id, "remover_pagamento",
+        {"nome": participante["nome"]},
+    )
+    await update.message.reply_text(
+        f"⚠️ Remover a parcela {numero_parcela} de {participante['nome']} "
+        f"({formatar_moeda(valor)})? Isso vai zerar esse pagamento.",
+        reply_markup=_teclado_confirmacao(token),
+    )
+
+
 async def _definir_meta(update: Update, dados: dict) -> None:
     try:
         valor = parse_valor(dados["valor_texto"])
@@ -337,6 +371,7 @@ async def _definir_meta(update: Update, dados: dict) -> None:
 
 ACOES_RESTRITAS = {
     "pagamento",
+    "remover_pagamento",
     "renomear",
     "adicionar_participante",
     "remover_participante",
@@ -369,6 +404,8 @@ async def tratar_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await _adicionar_participante(update, comando.dados)
         elif comando.tipo == "remover_participante":
             await _remover_participante(update, context, comando.dados)
+        elif comando.tipo == "remover_pagamento":
+            await _remover_pagamento(update, context, comando.dados)
         elif comando.tipo == "definir_meta":
             await _definir_meta(update, comando.dados)
         elif comando.tipo == "quem_pagou":

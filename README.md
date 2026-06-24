@@ -162,6 +162,11 @@ mensagens (polling)...`. Vá no Telegram e mande `/start` para o bot.
   → grava o valor na **próxima parcela vazia** (1ª, 2ª, 3ª... até a 12ª) do
   Fulano. Se as 12 já estiverem preenchidas, o bot avisa que ele já quitou e
   não grava nada.
+- `Fulano não pagou` / `Fulano nao pagou` → corrige um pagamento marcado por
+  engano: remove a **última parcela preenchida** do Fulano (apaga o valor e a
+  formatação verde/moeda daquela célula) e recalcula o total. Pede
+  confirmação por botão antes de executar, e avisa se a pessoa não tiver
+  nenhuma parcela paga.
 - `Trocar nome Fulano para Fulano Silva`
 - `Adicionar participante Beltrano`
 - `Remover participante Beltrano`
@@ -172,9 +177,9 @@ mensagens (polling)...`. Vá no Telegram e mande `/start` para o bot.
 - `Quanto falta pra meta?`
 - `/resumo` ou `Resumo`
 
-As ações de registrar pagamento, editar nome, cadastrar/remover participante
-e definir meta só funcionam para quem está em `AUTHORIZED_USER_IDS`; qualquer
-pessoa no chat pode fazer consultas.
+As ações de registrar pagamento, **remover pagamento**, editar nome,
+cadastrar/remover participante e definir meta só funcionam para quem está em
+`AUTHORIZED_USER_IDS`; qualquer pessoa no chat pode fazer consultas.
 
 ## 7. Subir no Railway ou Render
 
@@ -215,6 +220,10 @@ processo `python main.py` rodando continuamente.
   e não registra um 13º pagamento.
 - Pagamentos altos (acima de `VALOR_CONFIRMACAO`) exigem confirmação por
   botão antes de gravar.
+- Remover pagamento (`Fulano não pagou`) é uma ação destrutiva: o bot sempre
+  pede confirmação por botão (✅/❌) antes de apagar a parcela, mostrando qual
+  parcela e valor serão removidos. Se a pessoa não tiver nenhuma parcela
+  preenchida, o bot avisa e não faz nada.
 - Possível duplicidade: como a planilha real não tem mais uma coluna de
   histórico com datas, o bot guarda em memória o último nome+valor
   registrado por chat; se o mesmo nome+valor for repetido dentro de 2

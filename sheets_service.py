@@ -36,6 +36,11 @@ COL_TOTAL = COL_ULTIMA_PARCELA + 1  # O (15)
 
 CONFIG_CABECALHO = ["Chave", "Valor"]
 
+# --- formatação visual, pra parcela paga ficar igual às demais já preenchidas ---
+COR_PARCELA_PAGA = {"red": 217 / 255, "green": 234 / 255, "blue": 211 / 255}  # #D9EAD3
+FORMATO_MOEDA_PARCELA = {"type": "CURRENCY", "pattern": "R$ #,##0.00"}
+NOME_TAMANHO_FONTE = 11
+
 
 class PlanilhaError(Exception):
     """Erro genérico de comunicação com a planilha (rede, permissão, dados ausentes etc.)."""
@@ -151,9 +156,12 @@ class SheetsService:
         if self.buscar_participante(nome):
             raise PlanilhaError(f'"{nome}" já está cadastrado na planilha.')
 
+        # a planilha usa nomes em maiúsculas — mantém o padrão das linhas já existentes
+        nome_formatado = nome.strip().upper()
+
         participantes, linha_total = self._ler_bloco()
         linha_em_branco = [""] * COL_TOTAL  # colunas A..O, A fica vazia (não é usada)
-        linha_em_branco[COL_NOME - 1] = nome
+        linha_em_branco[COL_NOME - 1] = nome_formatado
 
         with self._lock:
             try:
@@ -165,11 +173,13 @@ class SheetsService:
                         value_input_option=ValueInputOption.user_entered,
                         inherit_from_before=True,
                     )
+                    linha_destino = linha_total
                 else:
                     # não há linha de TOTAL visível: simplesmente acrescenta após o último participante
                     ultima = participantes[-1]["linha"] if participantes else config.LINHA_INICIAL - 1
+                    linha_destino = ultima + 1
                     intervalo = (
-                        f"{col_letra(COL_NOME)}{ultima + 1}:{col_letra(COL_TOTAL)}{ultima + 1}"
+                        f"{col_letra(COL_NOME)}{linha_destino}:{col_letra(COL_TOTAL)}{linha_destino}"
                     )
                     self._aba_pagamentos.update(
                         intervalo, [linha_em_branco[COL_NOME - 1:]],
@@ -177,6 +187,14 @@ class SheetsService:
                     )
             except Exception as exc:
                 raise PlanilhaError(f"Erro ao adicionar participante: {exc}") from exc
+
+            try:
+                self._aba_pagamentos.format(
+                    f"{col_letra(COL_NOME)}{linha_destino}",
+                    {"textFormat": {"fontSize": NOME_TAMANHO_FONTE, "bold": True}},
+                )
+            except Exception as exc:
+                raise PlanilhaError(f"Erro ao formatar o nome do participante: {exc}") from exc
 
     def remover_participante(self, nome: str) -> None:
         participante = self.buscar_participante(nome)
@@ -199,6 +217,100 @@ class SheetsService:
                 raise PlanilhaError(f"Erro ao renomear participante: {exc}") from exc
 
     # ---------------------------------------------------------------- pagamentos / parcelas
+
+    @staticmethod
+    def _indice_ultima_parcela(parcelas: list) -> int | None:
+        """Varre as parcelas (C..N) da direita pra esquerda e retorna o índice (0-based)
+        da primeira célula preenchida, ou None se nenhuma parcela estiver paga."""
+        for indice in range(NUM_PARCELAS - 1, -1, -1):
+            if str(parcelas[indice]).strip() != "":
+                return indice
+        return None
+
+    def localizar_ultima_parcela(self, nome: str) -> tuple[int, float]:
+        """Retorna (número_da_parcela, valor) da parcela mais recente do participante,
+        sem alterar nada na planilha. Lança PlanilhaError se a pessoa não existir ou
+        não tiver nenhuma parcela preenchida."""
+        participante = self.buscar_participante(nome)
+        if not participante:
+            raise PlanilhaError(f'"{nome}" não foi encontrado na planilha.')
+        indice = self._indice_ultima_parcela(participante["parcelas"])
+        if indice is None:
+            raise PlanilhaError(f"{participante['nome']} não tem nenhum pagamento registrado pra remover.")
+        return indice + 1, self._para_float(participante["parcelas"][indice])
+
+    def _limpar_formatacao_celula(self, linha: int, coluna: int) -> None:
+        """Reseta toda a formatação de uma célula (cor de fundo, formato de moeda etc.),
+        deixando-a igual a uma célula nunca formatada."""
+        sheet_id = self._aba_pagamentos.id
+        requisicao = {
+            "requests": [{
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": linha - 1,
+                        "endRowIndex": linha,
+                        "startColumnIndex": coluna - 1,
+                        "endColumnIndex": coluna,
+                    },
+                    "cell": {"userEnteredFormat": {}},
+                    "fields": "userEnteredFormat",
+                }
+            }]
+        }
+        self._aba_pagamentos.spreadsheet.batch_update(requisicao)
+
+    def remover_ultima_parcela(self, nome: str) -> tuple[int, float, float]:
+        """Remove a parcela mais recente (última preenchida, varrendo da direita pra
+        esquerda): apaga o valor e a formatação de pagamento, e atualiza o total (coluna O)
+        caso ele não seja fórmula. Retorna (número_da_parcela, valor_removido, novo_total).
+        Lança PlanilhaError se a pessoa não existir ou não tiver parcela preenchida."""
+        participante = self.buscar_participante(nome)
+        if not participante:
+            raise PlanilhaError(f'"{nome}" não foi encontrado na planilha.')
+
+        parcelas = participante["parcelas"]
+        indice = self._indice_ultima_parcela(parcelas)
+        if indice is None:
+            raise PlanilhaError(f"{participante['nome']} não tem nenhum pagamento registrado pra remover.")
+
+        numero_parcela = indice + 1
+        valor_removido = self._para_float(parcelas[indice])
+        coluna = COL_PRIMEIRA_PARCELA + indice
+        linha = participante["linha"]
+
+        with self._lock:
+            try:
+                self._aba_pagamentos.update_cell(linha, coluna, "")
+            except Exception as exc:
+                raise PlanilhaError(f"Erro ao remover a parcela: {exc}") from exc
+
+            try:
+                self._limpar_formatacao_celula(linha, coluna)
+            except Exception as exc:
+                raise PlanilhaError(f"Erro ao limpar a formatação da parcela: {exc}") from exc
+
+            try:
+                celula_total = self._aba_pagamentos.cell(
+                    linha, COL_TOTAL, value_render_option=ValueRenderOption.formula
+                )
+                eh_formula = isinstance(celula_total.value, str) and celula_total.value.startswith("=")
+                if not eh_formula:
+                    novas_parcelas = list(parcelas)
+                    novas_parcelas[indice] = ""
+                    novo_total = sum(self._para_float(v) for v in novas_parcelas)
+                    self._aba_pagamentos.update_cell(linha, COL_TOTAL, novo_total)
+            except Exception as exc:
+                raise PlanilhaError(f"Erro ao atualizar o total: {exc}") from exc
+
+            try:
+                total_atual = self._aba_pagamentos.cell(
+                    linha, COL_TOTAL, value_render_option=ValueRenderOption.unformatted
+                ).value
+            except Exception as exc:
+                raise PlanilhaError(f"Erro ao ler o total atualizado: {exc}") from exc
+
+        return numero_parcela, valor_removido, self._para_float(total_atual)
 
     def registrar_pagamento(self, nome: str, valor: float) -> tuple[float, int]:
         """Grava o valor na próxima parcela vazia (C..N) do participante.
@@ -227,6 +339,20 @@ class SheetsService:
                 self._aba_pagamentos.update_cell(linha, coluna_destino, valor)
             except Exception as exc:
                 raise PlanilhaError(f"Erro ao registrar pagamento: {exc}") from exc
+
+            try:
+                # deixa a célula igual às demais parcelas pagas: moeda BRL, fundo verde e centralizada
+                self._aba_pagamentos.format(
+                    f"{col_letra(coluna_destino)}{linha}",
+                    {
+                        "numberFormat": FORMATO_MOEDA_PARCELA,
+                        "backgroundColor": COR_PARCELA_PAGA,
+                        "horizontalAlignment": "CENTER",
+                        "verticalAlignment": "MIDDLE",
+                    },
+                )
+            except Exception as exc:
+                raise PlanilhaError(f"Erro ao formatar a parcela: {exc}") from exc
 
             try:
                 celula_total = self._aba_pagamentos.cell(

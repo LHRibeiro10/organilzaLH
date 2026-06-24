@@ -29,11 +29,14 @@ _RE_PAGAMENTO = re.compile(
     r"(?P<nome>[^\d]+?)\s+pagou\s+(?:r\$\s*)?(?P<valor>[\d.,]+)\s*(?:reais?)?",
     re.IGNORECASE,
 )
+_RE_REMOVER_PAGAMENTO = re.compile(
+    r"(?P<nome>.+?)\s+n[aã]o\s+pagou\b", re.IGNORECASE
+)
 _RE_QUANTO_PESSOA = re.compile(
     r"quanto\s+(?:o\s+|a\s+)?(?P<nome>.+?)\s+(?:ja\s+|já\s+)?pagou", re.IGNORECASE
 )
 
-_PALAVRAS_SOLTAS_FINAIS = {"ja", "já", "hoje", "agora"}
+_PALAVRAS_SOLTAS_FINAIS = {"ja", "já", "hoje", "agora", "ainda"}
 
 
 def _limpar_nome(nome: str) -> str:
@@ -79,6 +82,15 @@ def interpretar_mensagem(texto: str) -> Comando:
             "nome": _limpar_nome(m.group("nome")),
             "valor_texto": m.group("valor"),
         })
+
+    # "Fulano não pagou" / "Fulano nao pagou": remove a parcela mais recente dele.
+    # Não confundir com a consulta "quem ainda não pagou?" (tratada abaixo).
+    if not texto_norm.startswith("quem"):
+        m = _RE_REMOVER_PAGAMENTO.search(texto)
+        if m:
+            nome = _limpar_nome(m.group("nome"))
+            if nome and normalizar(nome) != "quem":
+                return Comando(tipo="remover_pagamento", dados={"nome": nome})
 
     # --- consultas, liberadas para qualquer pessoa no chat ---
     if "quem" in texto_norm and "pagou" in texto_norm:
