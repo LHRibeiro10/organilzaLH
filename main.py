@@ -223,8 +223,12 @@ async def _quem_pagou(update: Update) -> None:
         await update.message.reply_text("Ainda ninguém pagou nada. 😅")
         return
     pagaram.sort(key=lambda p: p["total"], reverse=True)
-    linhas = [f"• {p['nome']}: {formatar_moeda(p['total'])}" for p in pagaram]
-    await update.message.reply_text("✅ *Quem já pagou:*\n" + "\n".join(linhas), parse_mode="Markdown")
+    largura_nome = max(len(p["nome"]) for p in pagaram)
+    linhas = [
+        f"{p['nome'].ljust(largura_nome)}  {formatar_moeda(p['total'])}" for p in pagaram
+    ]
+    texto = "✅ *Quem já pagou:*\n```\n" + "\n".join(linhas) + "\n```"
+    await update.message.reply_text(texto, parse_mode="Markdown")
 
 
 async def _quem_nao_pagou(update: Update) -> None:
@@ -233,8 +237,9 @@ async def _quem_nao_pagou(update: Update) -> None:
     if not nao_pagaram:
         await update.message.reply_text("🎉 Todo mundo já contribuiu com alguma coisa!")
         return
-    linhas = [f"• {p['nome']}" for p in nao_pagaram]
-    await update.message.reply_text("❌ *Ainda não pagaram nada:*\n" + "\n".join(linhas), parse_mode="Markdown")
+    linhas = [p["nome"] for p in nao_pagaram]
+    texto = "❌ *Ainda não pagaram nada:*\n```\n" + "\n".join(linhas) + "\n```"
+    await update.message.reply_text(texto, parse_mode="Markdown")
 
 
 async def _quanto_pessoa(update: Update, nome: str) -> None:
